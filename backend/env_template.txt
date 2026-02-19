@@ -1,0 +1,15 @@
+# Copy this file to .env and fill in your values
+
+# MongoDB Connection String
+# For local MongoDB: mongodb://localhost:27017/hemoscan_ai
+# For MongoDB Atlas: mongodb+srv://username:password@cluster.mongodb.net/hemoscan_ai
+MONGO_URI=mongodb://localhost:27017/hemoscan_ai
+
+# JWT Secret Key (Change this to a secure random string in production)
+# Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+JWT_SECRET_KEY=your-secret-key-change-in-production
+
+# Flask Secret Key (Change this to a secure random string in production)
+SECRET_KEY=your-secret-key-change-in-production
+
+
