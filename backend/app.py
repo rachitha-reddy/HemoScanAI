@@ -77,14 +77,40 @@ def init_db():
 
 def get_feature_importance(prediction_features):
     """Calculate feature importance for explainable AI"""
-    # Get coefficients from logistic regression
-    coefficients = model.coef_[0]
+    # Check if model has feature_importances_ (Random Forest, Gradient Boosting)
+    if hasattr(model, 'feature_importances_'):
+        # Use feature importances from tree-based models
+        importances = model.feature_importances_
+        
+        # Create feature importance dictionary
+        importance = {}
+        for i, feature in enumerate(feature_names):
+            # Use feature importance and weight by feature value
+            base_importance = importances[i]
+            # Adjust by how extreme the feature value is (normalized)
+            feature_value = abs(prediction_features[i])
+            # Normalize feature value (rough estimate)
+            if feature == 'age':
+                normalized_value = feature_value / 80.0
+            elif feature == 'hemoglobin':
+                normalized_value = feature_value / 18.0
+            elif feature in ['fatigue', 'dizziness', 'pale_skin', 'weakness', 'shortness_breath']:
+                normalized_value = feature_value  # Already 0 or 1
+            else:
+                normalized_value = min(feature_value / 5.0, 1.0)  # Rough normalization
+            
+            importance[feature] = base_importance * (1 + normalized_value)
     
-    # Create feature importance dictionary
-    importance = {}
-    for i, feature in enumerate(feature_names):
-        # Weight by coefficient and feature value
-        importance[feature] = abs(coefficients[i] * prediction_features[i])
+    # Fallback for linear models (Logistic Regression)
+    elif hasattr(model, 'coef_'):
+        coefficients = model.coef_[0]
+        importance = {}
+        for i, feature in enumerate(feature_names):
+            # Weight by coefficient and feature value
+            importance[feature] = abs(coefficients[i] * prediction_features[i])
+    else:
+        # Default: equal importance
+        importance = {feature: 1.0 for feature in feature_names}
     
     # Normalize to percentages
     total = sum(importance.values())
@@ -185,9 +211,13 @@ def predict():
             'shortness_breath': shortness_breath
         }
         
+        # Calculate symptom count for feature engineering
+        symptom_count = fatigue + dizziness + pale_skin + weakness + shortness_breath
+        
         feature_vector = np.array([[
             age, gender, hemoglobin, diet,
-            fatigue, dizziness, pale_skin, weakness, shortness_breath
+            fatigue, dizziness, pale_skin, weakness, shortness_breath,
+            symptom_count  # Add symptom count as engineered feature
         ]])
         
         # Scale features
@@ -196,10 +226,32 @@ def predict():
         # Predict
         probability = model.predict_proba(feature_vector_scaled)[0][1]
         
-        # Determine risk level
-        if probability < 0.3:
+        # Enhanced risk level determination based on medical standards
+        # Consider hemoglobin levels and symptoms for more accurate classification
+        hb_threshold_female = 12.0
+        hb_threshold_male = 13.0
+        hb_threshold = hb_threshold_female if gender == 0 else hb_threshold_male
+        
+        # Adjust probability based on hemoglobin (most important factor)
+        if hemoglobin < hb_threshold:
+            # Anemic - increase risk probability
+            hb_adjustment = (hb_threshold - hemoglobin) / hb_threshold * 0.3
+            probability = min(1.0, probability + hb_adjustment)
+        elif hemoglobin >= hb_threshold + 1:
+            # Normal or high - decrease risk probability
+            hb_adjustment = (hemoglobin - hb_threshold) / 5.0 * 0.2
+            probability = max(0.0, probability - hb_adjustment)
+        
+        # Adjust based on symptom count
+        if symptom_count >= 4:
+            probability = min(1.0, probability + 0.15)  # Multiple symptoms increase risk
+        elif symptom_count == 0 and hemoglobin >= hb_threshold:
+            probability = max(0.0, probability - 0.1)  # No symptoms and normal Hb decrease risk
+        
+        # Determine risk level with improved thresholds
+        if probability < 0.25:
             risk_level = 'Low'
-        elif probability < 0.6:
+        elif probability < 0.65:
             risk_level = 'Moderate'
         else:
             risk_level = 'High'
